@@ -15,31 +15,49 @@ let cannonTip = { x: 0, y: 0 };
 
 const simulation = {
     initialVelocity: 18,
-    angle: 45,
+    angle: 20,
     mass: 24.35,
     gravity: 9.81,
-    targetDistance: 15,
-    airDensity: 1.225,
-    dragCoefficient: 0.47
+    initialHeight: 0
 };
 
-function calculateTrajectoryPoint(t, vx, vy) {
+function calculateTrajectoryPoint(t) {
     const angleRad = (simulation.angle * Math.PI) / 180;
+    const v0x = simulation.initialVelocity * Math.cos(angleRad);
+    const v0y = simulation.initialVelocity * Math.sin(angleRad);
     
-    const velocity = Math.sqrt(vx * vx + vy * vy);
-    const area = Math.PI * 0.05 * 0.05;
-    const dragForce = 0.5 * simulation.airDensity * velocity * velocity * simulation.dragCoefficient * area;
+    // Calculate x position using MRU
+    const x = v0x * t;
     
-    const ax = -dragForce * vx / (velocity * simulation.mass);
-    const ay = -simulation.gravity - (dragForce * vy) / (velocity * simulation.mass);
+    // Calculate y position using MRUV
+    const y = v0y * t - (0.5 * simulation.gravity * t * t);
     
-    vx += ax * t;
-    vy += ay * t;
+    return { x, y };
+}
+
+function calculateTimeOfFlight() {
+    const angleRad = (simulation.angle * Math.PI) / 180;
+    const v0y = simulation.initialVelocity * Math.sin(angleRad);
     
-    let x = vx * t;
-    let y = vy * t;
+    // Time of flight = (2 * v0y) / g
+    return (2 * v0y) / simulation.gravity;
+}
+
+function calculateDistance() {
+    const angleRad = (simulation.angle * Math.PI) / 180;
+    const v0x = simulation.initialVelocity * Math.cos(angleRad);
+    const timeOfFlight = calculateTimeOfFlight();
     
-    return { x, y, vx, vy };
+    // Distance = v0x * t
+    return v0x * timeOfFlight;
+}
+
+function calculateMaxHeight() {
+    const angleRad = (simulation.angle * Math.PI) / 180;
+    const v0y = simulation.initialVelocity * Math.sin(angleRad);
+    
+    // Maximum height = (v0y)² / (2g)
+    return (v0y * v0y) / (2 * simulation.gravity);
 }
 
 function updateCannonTip() {
@@ -63,7 +81,6 @@ function drawScene() {
     ctx.fillStyle = '#90EE90';
     ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
     
-    // Update cannon tip position
     updateCannonTip();
     
     // Draw cannon
@@ -76,16 +93,13 @@ function drawScene() {
     ctx.translate(cannonX, cannonY);
     ctx.rotate(-simulation.angle * Math.PI / 180);
     
-    // Draw cannon body
     ctx.fillStyle = '#8B4513';
     ctx.fillRect(0, -cannonWidth / 2, cannonLength, cannonWidth);
     
-    // Add details to the cannon
     ctx.fillStyle = '#A0522D';
     ctx.fillRect(0, -cannonWidth / 2, 10, cannonWidth);
     ctx.fillRect(cannonLength - 10, -cannonWidth / 2, 10, cannonWidth);
     
-    // Add a circular base to the cannon
     ctx.beginPath();
     ctx.arc(0, 0, cannonWidth, 0, Math.PI * 2);
     ctx.fillStyle = '#D2691E';
@@ -94,7 +108,7 @@ function drawScene() {
     ctx.restore();
     
     // Draw target
-    const targetX = simulation.targetDistance * (canvas.width / 20);
+    const targetX = simulation.targetDistance * (canvas.width / 30);
     ctx.beginPath();
     ctx.arc(targetX, canvas.height - 20, 20, 0, Math.PI * 2);
     ctx.fillStyle = '#FF0000';
@@ -133,33 +147,38 @@ function animate() {
     if (!isPaused && isAnimating) {
         const dt = 0.05;
         time += dt;
-        const angleRad = (simulation.angle * Math.PI) / 180;
-        let vx = simulation.initialVelocity * Math.cos(angleRad);
-        let vy = simulation.initialVelocity * Math.sin(angleRad);
-        const pos = calculateTrajectoryPoint(time, vx, vy);
         
-        projectilePos.x = cannonTip.x + pos.x * (canvas.width / 20);
-        projectilePos.y = cannonTip.y - pos.y * (canvas.height / 10);
+        const totalTime = calculateTimeOfFlight();
+        const totalDistance = calculateDistance();
         
-        trajectory.push({x: projectilePos.x, y: projectilePos.y});
-        
-        const heightFromGround = canvas.height - 20 - projectilePos.y;
-        if (heightFromGround > maxHeight) {
-            maxHeight = heightFromGround;
-            document.getElementById('heightValue').textContent = (maxHeight / (canvas.height / 10)).toFixed(2);
-        }
-        
-        if (projectilePos.y >= canvas.height - 20) {
+        if (time <= totalTime) {
+            const pos = calculateTrajectoryPoint(time);
+            
+            // Scale positions for canvas display
+            projectilePos.x = cannonTip.x + pos.x * (canvas.width / 30);
+            projectilePos.y = cannonTip.y - pos.y * (canvas.height / 15);
+            
+            trajectory.push({x: projectilePos.x, y: projectilePos.y});
+            
+            const currentHeight = pos.y;
+            if (currentHeight > maxHeight) {
+                maxHeight = currentHeight;
+                document.getElementById('heightValue').textContent = maxHeight.toFixed(2);
+            }
+            
+            document.getElementById('distanceValue').textContent = (pos.x).toFixed(2);
+            
+            drawScene();
+            animationId = requestAnimationFrame(animate);
+        } else {
             isAnimating = false;
             landingPoint = { 
-                x: (projectilePos.x - cannonTip.x) / (canvas.width / 20),
+                x: totalDistance,
                 y: 0 
             };
-            document.getElementById('distanceValue').textContent = landingPoint.x.toFixed(2);
+            document.getElementById('distanceValue').textContent = totalDistance.toFixed(2);
+            drawScene();
         }
-        
-        drawScene();
-        animationId = requestAnimationFrame(animate);
     }
 }
 
@@ -174,8 +193,8 @@ document.getElementById('fireButton').addEventListener('click', () => {
         updateCannonTip();
         projectilePos.x = cannonTip.x;
         projectilePos.y = cannonTip.y;
-        document.getElementById('heightValue').textContent = '0.00';
-        document.getElementById('distanceValue').textContent = '0.00';
+        document.getElementById('heightValue').textContent = calculateMaxHeight().toFixed(2);
+        document.getElementById('distanceValue').textContent = calculateDistance().toFixed(2);
         animate();
     }
 });
@@ -239,7 +258,6 @@ document.getElementById('gravity').addEventListener('input', function() {
     updateSliderValue('gravity', 'gravityValue', simulation.gravity.toFixed(2));
 });
 
-// Arrow button event listeners
 function createArrowButtonListeners(sliderId, valueId, step, min, max) {
     document.getElementById(sliderId + 'DecreaseBtn').addEventListener('click', () => {
         const slider = document.getElementById(sliderId);
@@ -264,3 +282,4 @@ updateCannonTip();
 projectilePos.x = cannonTip.x;
 projectilePos.y = cannonTip.y;
 drawScene();
+
